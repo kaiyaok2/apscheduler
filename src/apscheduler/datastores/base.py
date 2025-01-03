@@ -12,8 +12,14 @@ from ..serializers.pickle import PickleSerializer
 
 @attrs.define(kw_only=True)
 class BaseDataStore(DataStore):
-    """Base class for data stores."""
+    """
+    Base class for data stores.
 
+    :param lock_expiration_delay: maximum amount of time (in seconds) that a scheduler
+        can keep a lock on a schedule or task
+    """
+
+    lock_expiration_delay: float = 30
     _event_broker: EventBroker = attrs.field(init=False)
     _logger: Logger = attrs.field(init=False)
 

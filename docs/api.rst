@@ -5,16 +5,9 @@ Data structures
 ---------------
 
 .. autoclass:: apscheduler.Task
-.. autoclass:: apscheduler.TaskDefaults
 .. autoclass:: apscheduler.Schedule
-.. autoclass:: apscheduler.ScheduleResult
 .. autoclass:: apscheduler.Job
 .. autoclass:: apscheduler.JobResult
-
-Decorators
-----------
-
-.. autodecorator:: apscheduler.task
 
 Schedulers
 ----------
@@ -46,7 +39,6 @@ Event brokers
 .. autoclass:: apscheduler.abc.Subscription
 .. autoclass:: apscheduler.eventbrokers.local.LocalEventBroker
 .. autoclass:: apscheduler.eventbrokers.asyncpg.AsyncpgEventBroker
-.. autoclass:: apscheduler.eventbrokers.psycopg.PsycopgEventBroker
 .. autoclass:: apscheduler.eventbrokers.mqtt.MQTTEventBroker
 .. autoclass:: apscheduler.eventbrokers.redis.RedisEventBroker
 

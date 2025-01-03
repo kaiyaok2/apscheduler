@@ -50,19 +50,10 @@ autodoc_mock_imports = [
     "cbor2",
     "paho",
     "pymongo",
-    "psycopg",
     "redis",
     "sqlalchemy",
     "PyQt6",
 ]
-autodoc_type_aliases = {
-    "datetime": "datetime.datetime",
-    "UUID": "uuid.UUID",
-    "AsyncEngine": "sqlalchemy.ext.asyncio.AsyncEngine",
-    "RetrySettings": "apscheduler.RetrySettings",
-    "Serializer": "apscheduler.abc.Serializer",
-}
-nitpick_ignore = [("py:class", "datetime")]
 
 # -- Options for HTML output -------------------------------------------------
 
@@ -74,10 +65,5 @@ html_theme = "sphinx_rtd_theme"
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
     "anyio": ("https://anyio.readthedocs.io/en/latest/", None),
-    "asyncpg": ("https://magicstack.github.io/asyncpg/current/", None),
-    "cbor2": ("https://cbor2.readthedocs.io/en/latest/", None),
-    "psycopg": ("https://www.psycopg.org/psycopg3/docs/", None),
-    "pymongo": ("https://pymongo.readthedocs.io/en/stable", None),
-    "sqlalchemy": ("https://docs.sqlalchemy.org/en/20/", None),
     "tenacity": ("https://tenacity.readthedocs.io/en/latest/", None),
 }

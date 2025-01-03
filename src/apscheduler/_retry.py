@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from logging import Logger
-
 import attrs
 from attr.validators import instance_of
 from tenacity import (
@@ -44,7 +42,6 @@ class RetryMixin:
     """
 
     retry_settings: RetrySettings = attrs.field(default=RetrySettings())
-    _logger: Logger = attrs.field(init=False)
 
     @property
     def _temporary_failure_exceptions(self) -> tuple[type[Exception], ...]:

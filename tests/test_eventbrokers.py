@@ -21,20 +21,19 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_publish_subscribe(event_broker: EventBroker) -> None:
-    send, receive = create_memory_object_stream[Event](2)
-    with send, receive:
-        event_broker.subscribe(send.send)
-        event_broker.subscribe(send.send_nowait)
-        event = ScheduleAdded(
-            schedule_id="schedule1",
-            task_id="task1",
-            next_fire_time=datetime(2021, 9, 11, 12, 31, 56, 254867, UTC),
-        )
-        await event_broker.publish(event)
+    send, receive = create_memory_object_stream(2)
+    event_broker.subscribe(send.send)
+    event_broker.subscribe(send.send_nowait)
+    event = ScheduleAdded(
+        schedule_id="schedule1",
+        task_id="task1",
+        next_fire_time=datetime(2021, 9, 11, 12, 31, 56, 254867, UTC),
+    )
+    await event_broker.publish(event)
 
-        with fail_after(3):
-            event1 = await receive.receive()
-            event2 = await receive.receive()
+    with fail_after(3):
+        event1 = await receive.receive()
+        event2 = await receive.receive()
 
     assert event1 == event2
     assert isinstance(event1, ScheduleAdded)
@@ -45,27 +44,26 @@ async def test_publish_subscribe(event_broker: EventBroker) -> None:
 
 
 async def test_subscribe_one_shot(event_broker: EventBroker) -> None:
-    send, receive = create_memory_object_stream[Event](2)
-    with send, receive:
-        event_broker.subscribe(send.send, one_shot=True)
-        event = ScheduleAdded(
-            schedule_id="schedule1",
-            task_id="task1",
-            next_fire_time=datetime(2021, 9, 11, 12, 31, 56, 254867, UTC),
-        )
-        await event_broker.publish(event)
-        event = ScheduleAdded(
-            schedule_id="schedule2",
-            task_id="task1",
-            next_fire_time=datetime(2021, 9, 12, 8, 42, 11, 968481, UTC),
-        )
-        await event_broker.publish(event)
+    send, receive = create_memory_object_stream(2)
+    event_broker.subscribe(send.send, one_shot=True)
+    event = ScheduleAdded(
+        schedule_id="schedule1",
+        task_id="task1",
+        next_fire_time=datetime(2021, 9, 11, 12, 31, 56, 254867, UTC),
+    )
+    await event_broker.publish(event)
+    event = ScheduleAdded(
+        schedule_id="schedule2",
+        task_id="task1",
+        next_fire_time=datetime(2021, 9, 12, 8, 42, 11, 968481, UTC),
+    )
+    await event_broker.publish(event)
 
-        with fail_after(3):
-            received_event = await receive.receive()
+    with fail_after(3):
+        received_event = await receive.receive()
 
-        with pytest.raises(TimeoutError), fail_after(0.1):
-            await receive.receive()
+    with pytest.raises(TimeoutError), fail_after(0.1):
+        await receive.receive()
 
     assert isinstance(received_event, ScheduleAdded)
     assert received_event.schedule_id == "schedule1"
@@ -73,17 +71,16 @@ async def test_subscribe_one_shot(event_broker: EventBroker) -> None:
 
 
 async def test_unsubscribe(event_broker: EventBroker) -> None:
-    send, receive = create_memory_object_stream[Event]()
-    with send, receive:
-        subscription = event_broker.subscribe(send.send)
-        await event_broker.publish(Event())
-        with fail_after(3):
-            await receive.receive()
+    send, receive = create_memory_object_stream()
+    subscription = event_broker.subscribe(send.send)
+    await event_broker.publish(Event())
+    with fail_after(3):
+        await receive.receive()
 
-        subscription.unsubscribe()
-        await event_broker.publish(Event())
-        with pytest.raises(TimeoutError), fail_after(0.1):
-            await receive.receive()
+    subscription.unsubscribe()
+    await event_broker.publish(Event())
+    with pytest.raises(TimeoutError), fail_after(0.1):
+        await receive.receive()
 
 
 async def test_publish_no_subscribers(
@@ -100,15 +97,14 @@ async def test_publish_exception(
         raise Exception("foo")
 
     timestamp = datetime.now(UTC)
-    send, receive = create_memory_object_stream[Event]()
-    with send, receive:
-        event_broker.subscribe(bad_subscriber)
-        event_broker.subscribe(send.send)
-        await event_broker.publish(Event(timestamp=timestamp))
+    send, receive = create_memory_object_stream()
+    event_broker.subscribe(bad_subscriber)
+    event_broker.subscribe(send.send)
+    await event_broker.publish(Event(timestamp=timestamp))
 
-        received_event = await receive.receive()
-        assert received_event.timestamp == timestamp
-        assert "Error delivering Event" in caplog.text
+    received_event = await receive.receive()
+    assert received_event.timestamp == timestamp
+    assert "Error delivering Event" in caplog.text
 
 
 async def test_cancel_start(raw_event_broker: EventBroker, logger: Logger) -> None:
@@ -123,53 +119,3 @@ async def test_cancel_stop(raw_event_broker: EventBroker, logger: Logger) -> Non
         async with AsyncExitStack() as exit_stack:
             await raw_event_broker.start(exit_stack, logger)
             scope.cancel()
-
-
-def test_asyncpg_broker_from_async_engine() -> None:
-    pytest.importorskip("asyncpg", reason="asyncpg is not installed")
-    from sqlalchemy import URL
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from apscheduler.eventbrokers.asyncpg import AsyncpgEventBroker
-
-    url = URL(
-        "postgresql+asyncpg",
-        "myuser",
-        "c /%@",
-        "localhost",
-        7654,
-        "dbname",
-        {"opt1": "foo", "opt2": "bar"},
-    )
-    engine = create_async_engine(url)
-    broker = AsyncpgEventBroker.from_async_sqla_engine(engine)
-    assert isinstance(broker, AsyncpgEventBroker)
-    assert broker.dsn == (
-        "postgresql://myuser:c %2F%25%40@localhost:7654/dbname?opt1=foo&opt2=bar"
-    )
-
-
-def test_psycopg_broker_from_async_engine() -> None:
-    pytest.importorskip(
-        "psycopg", exc_type=ImportError, reason="psycopg is not installed"
-    )
-    from sqlalchemy import URL
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from apscheduler.eventbrokers.psycopg import PsycopgEventBroker
-
-    url = URL(
-        "postgresql+psycopg",
-        "myuser",
-        "c /%@",
-        "localhost",
-        7654,
-        "dbname",
-        {"opt1": "foo", "opt2": "bar"},
-    )
-    engine = create_async_engine(url)
-    broker = PsycopgEventBroker.from_async_sqla_engine(engine)
-    assert isinstance(broker, PsycopgEventBroker)
-    assert broker.conninfo == (
-        "postgresql://myuser:c %2F%25%40@localhost:7654/dbname?opt1=foo&opt2=bar"
-    )

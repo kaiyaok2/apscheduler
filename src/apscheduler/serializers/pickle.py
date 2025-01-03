@@ -4,7 +4,6 @@ from pickle import dumps, loads
 
 import attrs
 
-from .. import DeserializationError, SerializationError
 from ..abc import Serializer
 
 
@@ -25,13 +24,7 @@ class PickleSerializer(Serializer):
     protocol: int = 4
 
     def serialize(self, obj: object) -> bytes:
-        try:
-            return dumps(obj, self.protocol)
-        except Exception as exc:
-            raise SerializationError from exc
+        return dumps(obj, self.protocol)
 
     def deserialize(self, serialized: bytes):
-        try:
-            return loads(serialized)
-        except Exception as exc:
-            raise DeserializationError from exc
+        return loads(serialized)

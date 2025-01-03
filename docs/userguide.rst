@@ -7,32 +7,13 @@ User guide
 Installation
 ============
 
-The preferred installation method is by using
-`pip <http://pypi.python.org/pypi/pip/>`_::
+The preferred installation method is by using `pip <http://pypi.python.org/pypi/pip/>`_::
 
     $ pip install apscheduler
 
 If you don't have pip installed, you need to
 `install that first <https://pip.pypa.io/en/stable/installation/>`_.
 
-Interfacing with certain external services may need extra dependencies which are
-installable as extras:
-
-* ``asyncpg``: for the AsyncPG event broker
-* ``cbor``: for the CBOR serializer
-* ``mongodb``: for the MongoDB data store
-* ``mqtt``: for the MQTT event broker
-* ``psycopg``: for the Psycopg event broker
-* ``redis``: for the Redis event broker
-* ``sqlalchemy``: for the SQLAlchemy data store
-
-Using the extras instead of adding the corresponding libraries separately helps ensure
-that you will have compatible versions of the dependent libraries going forward.
-
-You can install any number of these extras with APScheduler by providing them as a comma
-separated list inside the brackets, like this::
-
-    pip install apscheduler[psycopg,sqlalchemy]
 
 Code examples
 =============
@@ -52,10 +33,10 @@ schedule.
 
 The *scheduler* is the user-facing interface of the system. When it's running, it does
 two things concurrently. The first is processing *schedules*. From its *data store*,
-it fetches :ref:`schedules <schedule>` due to be run. For each such schedule, it then
-uses the schedule's trigger_ to calculate run times up to the present. The scheduler
-then creates one or more jobs (controllable by configuration) based on these run times
-and adds them to the data store.
+it fetches :ref:`schedules <schedule>` due to be run. For each such schedule, it then uses
+the schedule's trigger_ to calculate run times up to the present. The scheduler then
+creates one or more jobs (controllable by configuration) based on these run times and
+adds them to the data store.
 
 The second role of the scheduler is running :ref:`jobs <job>`. The scheduler asks the
 `data store`_ for jobs, and then starts running those jobs. If the data store signals
@@ -91,14 +72,6 @@ A *task* encapsulates a callable_ and a number of configuration parameters. They
 often implicitly defined as a side effect of the user creating a new schedule against a
 callable_, but can also be :ref:`explicitly defined beforehand <configuring-tasks>`.
 
-Tasks have three different roles:
-
-#. They provide the target callable to be run when a job is started
-#. They provide a key (task ID) on which to limit the maximum number of concurrent jobs,
-   even between different schedules
-#. They provide a template from which certain parameters, like job executor and misfire
-   grace time, are copied to schedules and jobs derived from the task
-
 .. _trigger:
 
 A trigger_ contains the logic and state used to calculate when a scheduled task_ should
@@ -117,8 +90,8 @@ they directly request a task_ to be run.
 
 .. _data store:
 
-A *data store* is used to store :ref:`schedules <schedule>` and :ref:`jobs <job>`, and
-to keep track of :ref:`tasks <task>`.
+A *data store* is used to store :ref:`schedules <schedule>` and :ref:`jobs <job>`, and to keep
+track of :ref:`tasks <task>`.
 
 .. _job executor:
 
@@ -138,16 +111,16 @@ A *scheduler* is the main interface of this library. It houses both a `data stor
 an `event broker`_, plus one or more :ref:`job executors <job executor>`. It contains
 methods users can use to work with tasks, schedules and jobs. Behind the scenes, it also
 processes due schedules, spawning jobs and updating the next run times. It also
-processes available jobs, making the appropriate :ref:`job executors <job executor>` to
-run them, and then sending back the results to the `data store`_.
+processes available jobs, making the appropriate :ref:`job executors <job executor>` to run
+them, and then sending back the results to the `data store`_.
 
 Running the scheduler
 =====================
 
 The scheduler_ comes in two flavors: synchronous and asynchronous. The synchronous
 scheduler actually runs an asynchronous scheduler behind the scenes in a dedicated
-thread, so if your app runs on :mod:`asyncio` or Trio_, you should prefer the
-asynchronous scheduler.
+thread, so if your app runs on :mod:`asyncio` or Trio_, you should prefer the asynchronous
+scheduler.
 
 The scheduler can run either in the foreground, blocking on a call to
 :meth:`~Scheduler.run_until_stopped`, or in the background where it does its work while
@@ -160,8 +133,8 @@ of the program.
 
 In almost all cases, the scheduler should be used as a context manager. This initializes
 the underlying `data store`_ and `event broker`_, allowing you to use the scheduler for
-manipulating :ref:`tasks <task>`, :ref:`schedules <schedule>` and jobs prior to starting
-the processing of schedules and jobs. Exiting the context manager will shut down the
+manipulating :ref:`tasks <task>`, :ref:`schedules <schedule>` and jobs prior to starting the
+processing of schedules and jobs. Exiting the context manager will shut down the
 scheduler and its underlying services. This mode of operation is mandatory for the
 asynchronous scheduler when running it in the background, but it is preferred for the
 synchronous scheduler too.
@@ -234,12 +207,11 @@ of the scheduler before the process terminates.
 Configuring tasks
 =================
 
-In order to add :ref:`schedules <schedule>` or :ref:`jobs <job>` to the `data store`_,
-you need to have a task_ that defines which callable_ will be called when each job_ is
-run.
+In order to add :ref:`schedules <schedule>` or :ref:`jobs <job>` to the `data store`_, you need
+to have a task_ that defines which callable_ will be called when each job_ is run.
 
 In most cases, you don't need to go through this step, and instead have a task_
-implicitly created for you by the methods that add schedules or jobs.
+implicitly created for you by the methods that add `schedules or jobs.
 
 Explicitly configuring a task is generally only necessary in the following cases:
 
@@ -247,110 +219,6 @@ Explicitly configuring a task is generally only necessary in the following cases
 * You need to set any of the task settings to non-default values
 * You need to add schedules/jobs targeting lambdas, nested functions or instances of
   unserializable classes
-
-There are two ways to explicitly configure tasks:
-
-#. Call the :meth:`~Scheduler.configure_task` scheduler method
-#. Decorate your target function with :func:`@task <task>`
-
-.. seealso:: :ref:`settings_inheritance`
-
-Limiting the number of concurrently executing instances of a job
-----------------------------------------------------------------
-
-**Option**: ``max_running_jobs``
-
-It is possible to control the maximum number of concurrently running jobs for a
-particular task. By default, only one job is allowed to be run for every task.
-This means that if the job is about to be run but there is another job for the same task
-still running, the later job is terminated with the outcome of
-:attr:`~JobOutcome.missed_start_deadline`.
-
-To allow more jobs to be concurrently running for a task, pass the desired maximum
-number as the ``max_running_jobs`` keyword argument to :meth:`~Scheduler.add_schedule`.
-
-.. _controlling-how-much-a-job-can-be-started-late:
-
-Controlling how much a job can be started late
-----------------------------------------------
-
-**Option**: ``misfire_grace_time``
-
-This option applies to scheduled jobs. Some tasks are time sensitive, and should not be
-run at all if they fail to be started on time (like, for example, if the scheduler(s)
-were down while they were supposed to be running the scheduled jobs). When a scheduler
-acquires jobs, the data store discards any jobs that have passed their start deadlines
-(scheduled time + ``misfire_grace_time``). Such jobs are released with the outcome of
-:attr:`~JobOutcome.missed_start_deadline`.
-
-Adding custom metadata
-----------------------
-
-**Option**: ``metadata``
-
-This option allows adding custom, JSON compatible metadata to tasks, schedules and jobs.
-Here, "JSON compatible" means the following restrictions:
-
-* The top-level metadata object must be a :class:`dict`
-* All :class:`dict` keys must be strings
-* Values can be :class:`int`, :class:`float`, :class:`str`, :class:`bool` or
-  :data:`None`
-
-.. note:: Top level metadata keys are merged with any explicitly passed values, in such
-    a way that explicitly passed values override any values from the task level.
-
-.. _settings_inheritance:
-
-Inheritance of settings
------------------------
-
-When tasks are configured, or schedules or jobs created, they will inherit the settings
-of any "parent" object according to the following rules:
-
-* Task configuration parameters are resolving according to the following, descending
-  priority order:
-
-  #. Parameters passed directly to :meth:`~AsyncScheduler.configure_task`
-  #. Parameters bound to the target function via :func:`@task <task>`
-  #. The scheduler's task defaults
-* Schedules inherit settings from the their respective tasks
-* Jobs created from schedules inherit the settings from their parent schedules
-* Jobs created directly inherit the settings from their parent tasks
-
-The ``metadata`` parameter works a bit differently. Top level keys will be merged in
-such a way that keys on a more explicit configuration level keys will overwrite keys
-from a more generic level.
-
-If any parameter is unset, it will be looked up on the next level. Here is an example
-that illustrates the lookup order::
-
-    from apscheduler import Scheduler, TaskDefaults, task
-
-    @task(max_running_jobs=3, metadata={"foo": ["taskfunc"]})
-    def mytaskfunc():
-        print("running stuff")
-
-    task_defaults = TaskDefaults(
-        misfire_grace_time=15,
-        job_executor="processpool",
-        metadata={"global": 3, "foo": ["bar"]}
-    )
-    with Scheduler(task_defaults=task_defaults) as scheduler:
-        scheduler.configure_task(
-            "sometask",
-            func=mytaskfunc,
-            job_executor="threadpool",
-            metadata={"direct": True}
-        )
-
-The resulting task will have the following parameters:
-
-* ``id``: ``'sometask'`` (from the :meth:`~AsyncScheduler.configure_task` call)
-* ``job_executor``: ``'threadpool'`` (from the :meth:`~AsyncScheduler.configure_task`
-  call, where it overrides the scheduler-level default)
-* ``max_running_jobs``: 3 (from the decorator)
-* ``misfire_grace_time``: 15 (from the scheduler-level default)
-* ``metadata``: ``{"global": 3, "foo": ["taskfunc"], "direct": True}``
 
 Scheduling tasks
 ================
@@ -437,6 +305,22 @@ If this trigger is created on 2022-06-07 at 09:00:00, its first run times would 
 
 Notably, 2022-08-07 is skipped because it falls on a Sunday.
 
+Running tasks without scheduling
+--------------------------------
+
+In some cases, you want to run tasks directly, without involving schedules:
+
+* You're only interested in using the scheduler system as a job queue
+* You're interested in the job's return value
+
+To queue a job and wait for its completion and get the result, the easiest way is to
+use :meth:`~Scheduler.run_job`. If you prefer to just launch a job and not wait for its
+result, use :meth:`~Scheduler.add_job` instead. If you want to get the results later, you
+need to pass an appropriate ``result_expiration_time`` parameter to
+:meth:`~Scheduler.add_job` so that the result is saved. Then, you can call
+:meth:`~Scheduler.get_job_result` with the job ID you got from
+:meth:`~Scheduler.add_job` to retrieve the result.
+
 Removing schedules
 ------------------
 
@@ -473,6 +357,31 @@ the current datetime. If this parameter is provided, the schedules trigger will 
 repeatedly advanced to determine a next fire time that is at or after the specified time
 to resume from.
 
+Limiting the number of concurrently executing instances of a job
+----------------------------------------------------------------
+
+It is possible to control the maximum number of concurrently running jobs for a
+particular task. By default, only one job is allowed to be run for every task.
+This means that if the job is about to be run but there is another job for the same task
+still running, the later job is terminated with the outcome of
+:attr:`~JobOutcome.missed_start_deadline`.
+
+To allow more jobs to be concurrently running for a task, pass the desired maximum
+number as the ``max_running_jobs`` keyword argument to :meth:`~Scheduler.add_schedule`.
+
+.. _controlling-how-much-a-job-can-be-started-late:
+
+Controlling how much a job can be started late
+----------------------------------------------
+
+Some tasks are time sensitive, and should not be run at all if they fail to be started
+on time (like, for example, if the scheduler(s) were down while they were supposed to be
+running the scheduled jobs). You can control this time limit with the
+``misfire_grace_time`` option passed to :meth:`~Scheduler.add_schedule`. A scheduler
+that acquires the job then checks if the current time is later than the deadline
+(run time + misfire grace time) and if it is, it skips the execution of the job and
+releases it with the outcome of :attr:`~JobOutcome.missed_start_deadline`.
+
 Controlling how jobs are queued from schedules
 ----------------------------------------------
 
@@ -504,22 +413,6 @@ the collected run times is used for the deadline calculation.
 As explained in the previous section, the starting
 deadline is *misfire grace time*
 affects the newly queued job.
-
-Running tasks without scheduling
-================================
-
-In some cases, you want to run tasks directly, without involving schedules:
-
-* You're only interested in using the scheduler system as a job queue
-* You're interested in the job's return value
-
-To queue a job and wait for its completion and get the result, the easiest way is to
-use :meth:`~Scheduler.run_job`. If you prefer to just launch a job and not wait for its
-result, use :meth:`~Scheduler.add_job` instead. If you want to get the results later,
-you need to pass an appropriate ``result_expiration_time`` parameter to
-:meth:`~Scheduler.add_job` so that the result is saved. Then, you can call
-:meth:`~Scheduler.get_job_result` with the job ID you got from
-:meth:`~Scheduler.add_job` to retrieve the result.
 
 Context variables
 =================
@@ -586,12 +479,13 @@ When **distributed** event brokers (that is, other than the default one) are bei
 events other than the ones relating to the life cycles of schedulers and workers, will
 be sent to all schedulers and workers connected to that event broker.
 
-Clean-up of expired jobs, job results and schedules
-===================================================
+Clean-up of expired jobs and schedules
+======================================
 
-Each scheduler runs the data store's :meth:`~.abc.DataStore.cleanup` method
-periodically, configurable via the ``cleanup_interval`` scheduler parameter. This
-ensures that the data store doesn't get filled with unused data over time.
+Expired job results and finished schedules are, by default, automatically cleaned up by
+each running scheduler on 15 minute intervals (counting from the scheduler's start
+time). This can be adjusted (or disabled entirely) through the ``cleanup_interval``
+configuration option.
 
 Deployment
 ==========

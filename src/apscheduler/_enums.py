@@ -66,29 +66,17 @@ class JobOutcome(Enum):
 
     .. attribute:: missed_start_deadline
 
-        the job's execution was delayed enough for it to miss its start deadline
-        (scheduled time + misfire grace time)
-
-    .. attribute:: deserialization_failed
-
-        the deserialization operation failed
+        the job's execution was delayed enough for it to miss
 
     .. attribute:: cancelled
 
         the job's execution was cancelled
-
-    .. attribute:: abandoned
-
-        the worker running the job stopped unexpectedly and the job was never marked
-        as done
     """
 
     success = auto()
     error = auto()
     missed_start_deadline = auto()
-    deserialization_failed = auto()
     cancelled = auto()
-    abandoned = auto()
 
 
 class ConflictPolicy(Enum):

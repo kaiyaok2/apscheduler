@@ -5,7 +5,7 @@
 # * Run "pre-commit install".
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v4.6.0
     hooks:
       - id: check-added-large-files
       - id: check-case-conflict
@@ -20,27 +20,27 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.3
+    rev: v0.4.3
     hooks:
       - id: ruff
         args: [--fix, --show-fixes]
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
+    rev: v1.10.0
     hooks:
       - id: mypy
         additional_dependencies:
-          - attrs == 23.2.0
-          - pymongo == 4.8.0
-          - redis == 5.0.7
-          - sqlalchemy == 2.0.31
+          - attrs == 23.1.0
+          - pymongo == 4.6.0
+          - redis == 5.0.1
+          - sqlalchemy == 2.0.23
           - tzlocal == 5.2
         exclude: docs/conf.py
         stages: [manual]
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.3.0
+    rev: v2.2.6
     hooks:
       - id: codespell
 

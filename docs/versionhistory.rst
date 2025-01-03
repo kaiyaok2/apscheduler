@@ -6,65 +6,6 @@ APScheduler, see the :doc:`migration section <migration>`.
 
 **UNRELEASED**
 
-- **BREAKING** Refactored ``AsyncpgEventBroker`` to directly accept a connection string,
-  thus eliminating the need for the ``AsyncpgEventBroker.from_dsn()`` class method
-- **BREAKING** Added the ``extend_acquired_schedule_leases()`` data store method to
-  prevent other schedulers from acquiring schedules already being processed by a
-  scheduler, if that's taking unexpectedly long for some reason
-- **BREAKING** Added the ``extend_acquired_job_leases()`` data store method to prevent
-  jobs from being cleaned up as if they had been abandoned
-  (`#864 <https://github.com/agronholm/apscheduler/issues/864>`_)
-- **BREAKING** Changed the ``cleanup()`` data store method to also be responsible for
-  releasing jobs whose leases have expired (so the schedulers responsible for them have
-  probably died)
-- **BREAKING** Changed most attributes in ``Task`` and ``Schedule`` classes to be
-  read-only
-- **BREAKING** Refactored the ``release_schedules()`` data store method to take a
-  sequence of ``ScheduleResult`` instances instead of a sequence of schedules, to enable
-  the memory data store to handle schedule updates more efficiently
-- **BREAKING** Replaced the data store ``lock_expiration_delay`` parameter with a new
-  scheduler-level parameter, ``lease_duration`` which is then used to call the various
-  data store methods
-- **BREAKING** Added the ``job_result_expiration_time`` field to the ``Schedule`` class,
-  to allow the job results from scheduled jobs to stay around for some time
-  (`#927 <https://github.com/agronholm/apscheduler/issues/927>`_)
-- **BREAKING** Added an index for the ``created_at`` job field, so acquiring jobs would
-  be faster when there are a lot of them
-- **BREAKING** Removed the ``job_executor`` and ``max_running_jobs`` parameters from
-  ``add_schedule()`` and ``add_run_job()`` (explicitly configure the task using
-  ``configure_task()`` or by using the new ``@task`` decorator
-- **BREAKING** Replaced the ``default_job_executor`` scheduler parameter with a more
-  comprehensive ``task_defaults`` parameter
-- Added the ``@task`` decorator for specifying task configuration parameters bound to a
-  function
-- **BREAKING** Changed tasks to only function as job templates as well as buckets to
-  limit maximum concurrent job execution
-- **BREAKING** Changed the ``timezone`` argument to ``CronTrigger.from_crontab()`` into
-  a keyword-only argument
-- **BREAKING** Added the ``metadata`` field to tasks, schedules and jobs
-- Added the ``start_time`` and ``end_time`` arguments to ``CronTrigger.from_crontab()``
-  (`#676 <https://github.com/agronholm/apscheduler/issues/676>`_)
-- Added the ``psycopg`` event broker
-- Added useful indexes and removed useless ones in ``SQLAlchemyDatastore`` and
-  ``MongoDBDataStore``
-- Changed the ``lock_expiration_delay`` parameter of built-in data stores to accept a
-  ``timedelta`` as well as ``int`` or ``float``
-- Fixed serialization error with ``CronTrigger`` when pausing a schedule
-  (`#864 <https://github.com/agronholm/apscheduler/issues/864>`_)
-- Fixed ``TypeError: object NoneType can't be used in 'await' expression`` at teardown
-  of ``SQLAlchemyDataStore`` when it was passed a URL that implicitly created a
-  synchronous engine
-- Fixed serializers raising their own exceptions instead of ``SerializationError`` and
-  ``DeserializationError`` as appropriate
-- Fixed ``repr()`` outputs of schedulers, data stores and event brokers to be much more
-  useful and reasonable
-- Fixed race condition in ``MongoDBDataStore`` that allowed multiple schedulers to
-  acquire the same schedules at once
-- Changed ``SQLAlchemyDataStore`` to automatically create the explicitly specified
-  schema if it's missing (PR by @zhu0629)
-
-**4.0.0a5**
-
 - **BREAKING** Added the ``cleanup()`` scheduler method and a configuration option
   (``cleanup_interval``). A corresponding abstract method was added to the ``DataStore``
   class. This method purges expired job results and schedules that have exhausted their
@@ -74,28 +15,13 @@ APScheduler, see the :doc:`migration section <migration>`.
 - **BREAKING** Made publishing ``JobReleased`` events the responsibility of the
   ``DataStore`` implementation, rather than the scheduler, for consistency with the
   ``acquire_jobs()`` method
-- **BREAKING** The ``started_at`` field was moved from ``Job`` to ``JobResult``
-- **BREAKING** Removed the ``from_url()`` class methods of ``SQLAlchemyDataStore``,
-  ``MongoDBDataStore`` and ``RedisEventBroker`` in favor of the ability to pass a
-  connection url to the initializer
 - Added the ability to pause and unpause schedules (PR by @WillDaSilva)
-- Added the ``scheduled_start`` field to the ``JobAcquired`` event
-- Added the ``scheduled_start`` and ``started_at`` fields to the ``JobReleased`` event
 - Fixed large parts of ``MongoDBDataStore`` still calling blocking functions in the
   event loop thread
 - Fixed JSON serialization of triggers that had been used at least once
 - Fixed dialect name checks in the SQLAlchemy job store
 - Fixed JSON and CBOR serializers unable to serialize enums
 - Fixed infinite loop in CalendarIntervalTrigger with UTC timezone (PR by unights)
-- Fixed scheduler not resuming job processing when ``max_concurrent_jobs`` had been
-  reached and then a job was completed, thus making job processing possible again
-  (PR by MohammadAmin Vahedinia)
-- Fixed the shutdown procedure of the Redis event broker
-- Fixed ``SQLAlchemyDataStore`` not respecting custom schema name when creating enums
-- Fixed skipped intervals with overlapping schedules in ``AndTrigger``
-  (#911 <https://github.com/agronholm/apscheduler/issues/911>_; PR by Bennett Meares)
-- Fixed implicitly created client instances in data stores and event brokers not being
-  closed along with the store/broker
 
 **4.0.0a4**
 

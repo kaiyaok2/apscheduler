@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import datetime, timedelta, tzinfo
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Sequence
 
 import attrs
 from attr.validators import instance_of, optional
@@ -95,6 +94,7 @@ class CronTrigger(Trigger):
                 self.second,
             ]
         )
+        self._last_fire_time: datetime | None = None
 
     def _set_fields(self, values: Sequence[int | str | None]) -> None:
         self._fields = []
@@ -112,14 +112,7 @@ class CronTrigger(Trigger):
             self._fields.append(field)
 
     @classmethod
-    def from_crontab(
-        cls,
-        expr: str,
-        *,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        timezone: str | tzinfo = "local",
-    ) -> CronTrigger:
+    def from_crontab(cls, expr: str, timezone: str | tzinfo = "local") -> CronTrigger:
         """
         Create a :class:`~CronTrigger` from a standard crontab expression.
 
@@ -127,9 +120,6 @@ class CronTrigger(Trigger):
         accepted here.
 
         :param expr: minute, hour, day of month, month, day of week
-        :param start_time: earliest possible date/time to trigger on (defaults to current
-            time)
-        :param end_time: latest possible date/time to trigger on
         :param timezone: time zone to use for the date/time calculations
             (defaults to local timezone if omitted)
 
@@ -144,8 +134,6 @@ class CronTrigger(Trigger):
             day=values[2],
             month=values[3],
             day_of_week=values[4],
-            start_time=start_time or datetime.now(),
-            end_time=end_time,
             timezone=timezone,
         )
 

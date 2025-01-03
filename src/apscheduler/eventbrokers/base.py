@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from base64 import b64decode, b64encode
-from collections.abc import Iterable
 from contextlib import AsyncExitStack
 from inspect import iscoroutine
 from logging import Logger
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import attrs
 from anyio import CapacityLimiter, create_task_group, to_thread

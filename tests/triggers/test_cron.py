@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pytest
 
 from apscheduler.triggers.cron import CronTrigger
+
+if sys.version_info >= (3, 9):
+    from zoneinfo import ZoneInfo
+else:
+    from backports.zoneinfo import ZoneInfo
 
 
 def test_invalid_expression():
@@ -481,7 +486,7 @@ def test_year_list(timezone, serializer):
     ],
 )
 def test_from_crontab(expr, expected_repr, timezone, serializer):
-    trigger = CronTrigger.from_crontab(expr, timezone=timezone)
+    trigger = CronTrigger.from_crontab(expr, timezone)
     trigger.start_time = datetime(2020, 5, 19, 19, 53, 22, tzinfo=timezone)
     if serializer:
         trigger = serializer.deserialize(serializer.serialize(trigger))
@@ -492,13 +497,3 @@ def test_from_crontab(expr, expected_repr, timezone, serializer):
 def test_from_crontab_wrong_number_of_fields():
     exc = pytest.raises(ValueError, CronTrigger.from_crontab, "*")
     exc.match("Wrong number of fields; got 1, expected 5")
-
-
-def test_from_crontab_start_end_time(timezone: ZoneInfo) -> None:
-    start_time = datetime(2020, 5, 19, 19, 53, 22, tzinfo=timezone)
-    end_time = datetime(2020, 5, 24, 19, 53, 22, tzinfo=timezone)
-    trigger = CronTrigger.from_crontab(
-        "* * * * *", start_time=start_time, end_time=end_time
-    )
-    assert trigger.start_time == start_time
-    assert trigger.end_time == end_time

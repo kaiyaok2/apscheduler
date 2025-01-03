@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, Generator
+import sys
+from collections.abc import Generator
 from contextlib import AsyncExitStack
 from logging import Logger
 from pathlib import Path
-from typing import Any, cast
-from zoneinfo import ZoneInfo
+from typing import Any, AsyncGenerator, cast
 
 import pytest
 from _pytest.fixtures import SubRequest
@@ -17,6 +17,11 @@ from apscheduler.datastores.memory import MemoryDataStore
 from apscheduler.serializers.cbor import CBORSerializer
 from apscheduler.serializers.json import JSONSerializer
 from apscheduler.serializers.pickle import PickleSerializer
+
+if sys.version_info >= (3, 9):
+    from zoneinfo import ZoneInfo
+else:
+    from backports.zoneinfo import ZoneInfo
 
 
 @pytest.fixture(scope="session")
@@ -54,20 +59,33 @@ def local_broker() -> EventBroker:
 
 @pytest.fixture
 async def redis_broker(serializer: Serializer) -> EventBroker:
+    from redis.asyncio import Redis
+
     from apscheduler.eventbrokers.redis import RedisEventBroker
 
-    broker = RedisEventBroker(
+    broker = RedisEventBroker.from_url(
         "redis://localhost:6379", serializer=serializer, stop_check_interval=0.05
     )
-    await broker._client.flushdb()
+    assert isinstance(broker.client, Redis)
+    await broker.client.flushdb()
     return broker
 
 
-@pytest.fixture
-def mqtt_broker(serializer: Serializer) -> EventBroker:
+@pytest.fixture(
+    params=[
+        pytest.param(1, id="callback_api_v1"),
+        pytest.param(2, id="callback_api_v2"),
+    ]
+)
+def mqtt_broker(request: SubRequest, serializer: Serializer) -> EventBroker:
+    from paho.mqtt.client import Client
+    from paho.mqtt.enums import CallbackAPIVersion
+
     from apscheduler.eventbrokers.mqtt import MQTTEventBroker
 
-    return MQTTEventBroker(serializer=serializer)
+    callback_api_version = CallbackAPIVersion(request.param)
+
+    return MQTTEventBroker(Client(callback_api_version), serializer=serializer)
 
 
 @pytest.fixture
@@ -75,18 +93,7 @@ async def asyncpg_broker(serializer: Serializer) -> EventBroker:
     pytest.importorskip("asyncpg", reason="asyncpg is not installed")
     from apscheduler.eventbrokers.asyncpg import AsyncpgEventBroker
 
-    broker = AsyncpgEventBroker(
-        "postgres://postgres:secret@localhost:5432/testdb", serializer=serializer
-    )
-    return broker
-
-
-@pytest.fixture
-async def psycopg_broker(serializer: Serializer) -> EventBroker:
-    pytest.importorskip("psycopg", reason="psycopg is not installed")
-    from apscheduler.eventbrokers.psycopg import PsycopgEventBroker
-
-    broker = PsycopgEventBroker(
+    broker = AsyncpgEventBroker.from_dsn(
         "postgres://postgres:secret@localhost:5432/testdb", serializer=serializer
     )
     return broker
@@ -98,11 +105,6 @@ async def psycopg_broker(serializer: Serializer) -> EventBroker:
         pytest.param(
             lf("asyncpg_broker"),
             id="asyncpg",
-            marks=[pytest.mark.external_service],
-        ),
-        pytest.param(
-            lf("psycopg_broker"),
-            id="psycopg",
             marks=[pytest.mark.external_service],
         ),
         pytest.param(
@@ -139,7 +141,6 @@ def mongodb_store() -> Generator[DataStore, None, None]:
 
     from apscheduler.datastores.mongodb import MongoDBDataStore
 
-    client: MongoClient
     with MongoClient(tz_aware=True, serverSelectionTimeoutMS=1000) as client:
         yield MongoDBDataStore(client, start_from_scratch=True)
 
@@ -313,3 +314,13 @@ async def raw_datastore(request: SubRequest) -> DataStore:
 @pytest.fixture(scope="session")
 def logger() -> Logger:
     return logging.getLogger("apscheduler")
+
+
+@pytest.fixture
+async def datastore(
+    raw_datastore: DataStore, local_broker: EventBroker, logger: Logger
+) -> AsyncGenerator[DataStore, Any]:
+    async with AsyncExitStack() as exit_stack:
+        await local_broker.start(exit_stack, logger)
+        await raw_datastore.start(exit_stack, local_broker, logger)
+        yield raw_datastore

@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 from calendar import monthrange
 from datetime import datetime
-from re import Pattern
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Pattern
 
 import attrs
 from attr.validators import instance_of, optional
@@ -77,7 +76,7 @@ class AllExpression:
         return f"*/{self.step}" if self.step else "*"
 
 
-@attrs.define(kw_only=True)
+@attrs.define(kw_only=True, slots=True)
 class RangeExpression(AllExpression):
     value_re: ClassVar[Pattern] = re.compile(
         r"(?P<first>\d+)(?:-(?P<last>\d+))?(?:/(?P<step>\d+))?$"
@@ -86,7 +85,7 @@ class RangeExpression(AllExpression):
     first: int = attrs.field(
         converter=as_int, validator=[instance_of(int), non_negative_number]
     )
-    last: int | None = attrs.field(
+    last: int = attrs.field(
         converter=as_int,
         validator=optional([instance_of(int), non_negative_number]),
         default=None,
@@ -149,6 +148,7 @@ class RangeExpression(AllExpression):
         return rangeval
 
 
+# @attrs.define(kw_only=True, slots=True)
 class MonthRangeExpression(RangeExpression):
     value_re: ClassVar[Pattern] = re.compile(
         r"(?P<first>[a-z]+)(?:-(?P<last>[a-z]+))?", re.IGNORECASE
@@ -177,7 +177,7 @@ class MonthRangeExpression(RangeExpression):
         return MONTHS[self.first - 1]
 
 
-@attrs.define(kw_only=True, init=False)
+@attrs.define(kw_only=True, slots=True)
 class WeekdayRangeExpression(RangeExpression):
     value_re: ClassVar[Pattern] = re.compile(
         r"(?P<first>[a-z]+)(?:-(?P<last>[a-z]+))?", re.IGNORECASE
@@ -195,7 +195,7 @@ class WeekdayRangeExpression(RangeExpression):
         return WEEKDAYS[self.first]
 
 
-@attrs.define(kw_only=True, init=False)
+@attrs.define(kw_only=True, slots=True)
 class WeekdayPositionExpression(AllExpression):
     options: ClassVar[tuple[str, ...]] = ("1st", "2nd", "3rd", "4th", "5th", "last")
     value_re: ClassVar[Pattern] = re.compile(

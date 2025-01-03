@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, tzinfo
-from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
-from zoneinfo import ZoneInfo
+from typing import Any, NoReturn, TypeVar
 
 from ._exceptions import DeserializationError
 from .abc import Trigger
 
-if TYPE_CHECKING:
-    from ._structures import MetadataType
+if sys.version_info >= (3, 9):
+    from zoneinfo import ZoneInfo
+else:
+    from backports.zoneinfo import ZoneInfo
 
 T = TypeVar("T")
 
@@ -71,31 +73,3 @@ def require_state_version(
         raise DeserializationError(
             'Missing "version" key in the serialized state'
         ) from exc
-
-
-def merge_metadata(
-    base_metadata: MetadataType, *overlays: MetadataType | UnsetValue
-) -> MetadataType:
-    new_metadata = base_metadata.copy()
-    for metadata in overlays:
-        if isinstance(metadata, UnsetValue):
-            continue
-
-        new_metadata.update(metadata)
-
-    return new_metadata
-
-
-def create_repr(instance: object, *attrnames: str, **kwargs) -> str:
-    kv_pairs: list[tuple[str, object]] = []
-    for attrname in attrnames:
-        value = getattr(instance, attrname)
-        if value is not unset and value is not None:
-            kv_pairs.append((attrname, value))
-
-    for key, value in kwargs.items():
-        if value is not unset and value is not None:
-            kv_pairs.append((key, value))
-
-    rendered_attrs = ", ".join(f"{key}={value!r}" for key, value in kv_pairs)
-    return f"{instance.__class__.__name__}({rendered_attrs})"

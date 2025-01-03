@@ -1,23 +1,18 @@
 from __future__ import annotations
 
 import platform
-from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from logging import Logger
-from pathlib import Path
-from typing import TYPE_CHECKING
-from unittest.mock import Mock
+from typing import TYPE_CHECKING, AsyncGenerator
 
 import anyio
 import pytest
 from anyio import CancelScope
-from pytest_mock.plugin import MockerFixture
 
 from apscheduler import (
     CoalescePolicy,
     ConflictPolicy,
-    DeserializationError,
     Event,
     Job,
     JobOutcome,
@@ -31,12 +26,7 @@ from apscheduler import (
     TaskLookupError,
     TaskUpdated,
 )
-from apscheduler._structures import ScheduleResult
-from apscheduler.abc import DataStore, EventBroker, Serializer
-from apscheduler.datastores.base import BaseExternalDataStore
-from apscheduler.datastores.memory import MemoryDataStore
-from apscheduler.datastores.mongodb import MongoDBDataStore
-from apscheduler.datastores.sqlalchemy import SQLAlchemyDataStore
+from apscheduler.abc import DataStore, EventBroker
 from apscheduler.triggers.date import DateTrigger
 
 if TYPE_CHECKING:
@@ -46,33 +36,17 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-async def datastore(
-    raw_datastore: DataStore, local_broker: EventBroker, logger: Logger
-) -> AsyncGenerator[DataStore, None]:
-    async with AsyncExitStack() as exit_stack:
-        await local_broker.start(exit_stack, logger)
-        await raw_datastore.start(exit_stack, local_broker, logger)
-        yield raw_datastore
-
-
-@pytest.fixture
 def schedules() -> list[Schedule]:
     trigger = DateTrigger(datetime(2020, 9, 13, tzinfo=timezone.utc))
-    schedule1 = Schedule(
-        id="s1", task_id="task1", job_executor="async", trigger=trigger
-    )
+    schedule1 = Schedule(id="s1", task_id="task1", trigger=trigger)
     schedule1.next_fire_time = trigger.next()
 
     trigger = DateTrigger(datetime(2020, 9, 14, tzinfo=timezone.utc))
-    schedule2 = Schedule(
-        id="s2", task_id="task2", job_executor="async", trigger=trigger
-    )
+    schedule2 = Schedule(id="s2", task_id="task2", trigger=trigger)
     schedule2.next_fire_time = trigger.next()
 
     trigger = DateTrigger(datetime(2020, 9, 15, tzinfo=timezone.utc))
-    schedule3 = Schedule(
-        id="s3", task_id="task1", job_executor="async", trigger=trigger
-    )
+    schedule3 = Schedule(id="s3", task_id="task1", trigger=trigger)
     schedule3.next_fire_time = trigger.next()
 
     return [schedule1, schedule2, schedule3]
@@ -146,7 +120,6 @@ async def test_add_schedules(datastore: DataStore, schedules: list[Schedule]) ->
         assert await datastore.get_schedules({"s3"}) == [schedules[2]]
 
     for event, schedule in zip(events, schedules):
-        assert isinstance(event, ScheduleAdded)
         assert event.schedule_id == schedule.id
         assert event.task_id == schedule.task_id
         assert event.next_fire_time == schedule.next_fire_time
@@ -167,7 +140,6 @@ async def test_replace_schedules(
             trigger=trigger,
             args=(),
             kwargs={},
-            job_executor="async",
             coalesce=CoalescePolicy.earliest,
             misfire_grace_time=None,
         )
@@ -183,7 +155,6 @@ async def test_replace_schedules(
         assert schedules[0].misfire_grace_time is None
 
     received_event = events.pop(0)
-    assert isinstance(received_event, ScheduleUpdated)
     assert received_event.schedule_id == "s3"
     assert received_event.task_id == "foo"
     assert received_event.next_fire_time == datetime(2020, 9, 16, tzinfo=timezone.utc)
@@ -201,11 +172,9 @@ async def test_remove_schedules(
         assert await datastore.get_schedules() == [schedules[2]]
 
     received_event = events.pop(0)
-    assert isinstance(received_event, ScheduleRemoved)
     assert received_event.schedule_id == "s1"
 
     received_event = events.pop(0)
-    assert isinstance(received_event, ScheduleRemoved)
     assert received_event.schedule_id == "s2"
 
     assert not events
@@ -226,55 +195,27 @@ async def test_acquire_release_schedules(
             await datastore.add_schedule(schedule, ConflictPolicy.exception)
 
         # The first scheduler gets the first due schedule
-        schedules1 = await datastore.acquire_schedules(
-            "dummy-id1", timedelta(seconds=30), 1
-        )
+        schedules1 = await datastore.acquire_schedules("dummy-id1", 1)
         assert len(schedules1) == 1
         assert schedules1[0].id == "s1"
 
         # The second scheduler gets the second due schedule
-        schedules2 = await datastore.acquire_schedules(
-            "dummy-id2",
-            timedelta(seconds=30),
-            1,
-        )
+        schedules2 = await datastore.acquire_schedules("dummy-id2", 1)
         assert len(schedules2) == 1
         assert schedules2[0].id == "s2"
 
         # The third scheduler gets nothing
-        schedules3 = await datastore.acquire_schedules(
-            "dummy-id3",
-            timedelta(seconds=30),
-            1,
-        )
+        schedules3 = await datastore.acquire_schedules("dummy-id3", 1)
         assert not schedules3
 
         # Update the schedules and check that the job store actually deletes the
         # first one and updates the second one
-        results1: list[ScheduleResult] = []
-        results2: list[ScheduleResult] = []
-        results1.append(
-            ScheduleResult(
-                schedule_id=schedules1[0].id,
-                task_id=schedules1[0].task_id,
-                trigger=schedules1[0].trigger,
-                last_fire_time=datetime(2020, 9, 14, tzinfo=timezone.utc),
-                next_fire_time=None,
-            )
-        )
-        results2.append(
-            ScheduleResult(
-                schedule_id=schedules2[0].id,
-                task_id=schedules2[0].task_id,
-                trigger=schedules1[0].trigger,
-                last_fire_time=datetime(2020, 9, 14, tzinfo=timezone.utc),
-                next_fire_time=datetime(2020, 9, 15, tzinfo=timezone.utc),
-            )
-        )
+        schedules1[0].next_fire_time = None
+        schedules2[0].next_fire_time = datetime(2020, 9, 15, tzinfo=timezone.utc)
 
         # Release all the schedules
-        await datastore.release_schedules("dummy-id1", results1)
-        await datastore.release_schedules("dummy-id2", results2)
+        await datastore.release_schedules("dummy-id1", schedules1)
+        await datastore.release_schedules("dummy-id2", schedules2)
 
         # Check that the first schedule has its next fire time nullified
         schedules = await datastore.get_schedules()
@@ -303,27 +244,13 @@ async def test_release_schedule_two_identical_fire_times(datastore: DataStore) -
     """Regression test for #616."""
     for i in range(1, 3):
         trigger = DateTrigger(datetime(2020, 9, 13, tzinfo=timezone.utc))
-        schedule = Schedule(
-            id=f"s{i}", task_id="task1", job_executor="async", trigger=trigger
-        )
+        schedule = Schedule(id=f"s{i}", task_id="task1", trigger=trigger)
         schedule.next_fire_time = trigger.next()
         await datastore.add_schedule(schedule, ConflictPolicy.exception)
 
-    schedules = await datastore.acquire_schedules(
-        "foo",
-        timedelta(seconds=30),
-        3,
-    )
-    results = [
-        ScheduleResult(
-            schedule_id=schedules[0].id,
-            task_id=schedules[0].task_id,
-            trigger=schedules[0].trigger,
-            last_fire_time=datetime(2020, 9, 10, tzinfo=timezone.utc),
-            next_fire_time=None,
-        ),
-    ]
-    await datastore.release_schedules("foo", results)
+    schedules = await datastore.acquire_schedules("foo", 3)
+    schedules[0].next_fire_time = None
+    await datastore.release_schedules("foo", schedules)
 
     remaining = await datastore.get_schedules({s.id for s in schedules})
     assert len(remaining) == 2
@@ -338,23 +265,12 @@ async def test_release_two_schedules_at_once(datastore: DataStore) -> None:
     """Regression test for #621."""
     for i in range(2):
         trigger = DateTrigger(datetime(2020, 9, 13, tzinfo=timezone.utc))
-        schedule = Schedule(
-            id=f"s{i}", task_id="task1", job_executor="async", trigger=trigger
-        )
+        schedule = Schedule(id=f"s{i}", task_id="task1", trigger=trigger)
         schedule.next_fire_time = trigger.next()
         await datastore.add_schedule(schedule, ConflictPolicy.exception)
 
-    schedules = await datastore.acquire_schedules("foo", timedelta(seconds=30), 3)
-    results = [
-        ScheduleResult(
-            schedule_id=schedules[0].id,
-            task_id=schedules[0].task_id,
-            trigger=schedules[0].trigger,
-            last_fire_time=datetime(2020, 9, 10, tzinfo=timezone.utc),
-            next_fire_time=None,
-        ),
-    ]
-    await datastore.release_schedules("foo", results)
+    schedules = await datastore.acquire_schedules("foo", 3)
+    await datastore.release_schedules("foo", schedules)
 
     remaining = await datastore.get_schedules({s.id for s in schedules})
     assert len(remaining) == 2
@@ -378,31 +294,19 @@ async def test_acquire_schedules_lock_timeout(
     await datastore.add_schedule(schedules[0], ConflictPolicy.exception)
 
     # First, one scheduler acquires the first available schedule
-    acquired1 = await datastore.acquire_schedules(
-        "dummy-id1",
-        timedelta(seconds=30),
-        1,
-    )
+    acquired1 = await datastore.acquire_schedules("dummy-id1", 1)
     assert len(acquired1) == 1
     assert acquired1[0].id == "s1"
 
     # Try to acquire the schedule just at the threshold (now == acquired_until).
     # This should not yield any schedules.
     time_machine.shift(30)
-    acquired2 = await datastore.acquire_schedules(
-        "dummy-id2",
-        timedelta(seconds=30),
-        1,
-    )
+    acquired2 = await datastore.acquire_schedules("dummy-id2", 1)
     assert not acquired2
 
     # Right after that, the schedule should be available
     time_machine.shift(1)
-    acquired3 = await datastore.acquire_schedules(
-        "dummy-id2",
-        timedelta(seconds=30),
-        1,
-    )
+    acquired3 = await datastore.acquire_schedules("dummy-id2", 1)
     assert len(acquired3) == 1
     assert acquired3[0].id == "s1"
 
@@ -411,22 +315,22 @@ async def test_acquire_multiple_workers(datastore: DataStore) -> None:
     await datastore.add_task(
         Task(id="task1", func="contextlib:asynccontextmanager", job_executor="async")
     )
-    jobs = [Job(task_id="task1", executor="async") for _ in range(2)]
+    jobs = [Job(task_id="task1") for _ in range(2)]
     for job in jobs:
         await datastore.add_job(job)
 
     # The first worker gets the first job in the queue
-    jobs1 = await datastore.acquire_jobs("worker1", timedelta(seconds=30), 1)
+    jobs1 = await datastore.acquire_jobs("worker1", 1)
     assert len(jobs1) == 1
     assert jobs1[0].id == jobs[0].id
 
     # The second worker gets the second job
-    jobs2 = await datastore.acquire_jobs("worker2", timedelta(seconds=30), 1)
+    jobs2 = await datastore.acquire_jobs("worker2", 1)
     assert len(jobs2) == 1
     assert jobs2[0].id == jobs[1].id
 
     # The third worker gets nothing
-    jobs3 = await datastore.acquire_jobs("worker3", timedelta(seconds=30), 1)
+    jobs3 = await datastore.acquire_jobs("worker3", 1)
     assert not jobs3
 
 
@@ -434,12 +338,10 @@ async def test_job_release_success(datastore: DataStore) -> None:
     await datastore.add_task(
         Task(id="task1", func="contextlib:asynccontextmanager", job_executor="async")
     )
-    job = Job(
-        task_id="task1", executor="async", result_expiration_time=timedelta(minutes=1)
-    )
+    job = Job(task_id="task1", result_expiration_time=timedelta(minutes=1))
     await datastore.add_job(job)
 
-    acquired = await datastore.acquire_jobs("worker_id", timedelta(seconds=30), 2)
+    acquired = await datastore.acquire_jobs("worker_id", 2)
     assert len(acquired) == 1
     assert acquired[0].id == job.id
 
@@ -453,7 +355,6 @@ async def test_job_release_success(datastore: DataStore) -> None:
         ),
     )
     result = await datastore.get_job_result(acquired[0].id)
-    assert result
     assert result.outcome is JobOutcome.success
     assert result.exception is None
     assert result.return_value == "foo"
@@ -467,12 +368,10 @@ async def test_job_release_failure(datastore: DataStore) -> None:
     await datastore.add_task(
         Task(id="task1", job_executor="async", func="contextlib:asynccontextmanager")
     )
-    job = Job(
-        task_id="task1", executor="async", result_expiration_time=timedelta(minutes=1)
-    )
+    job = Job(task_id="task1", result_expiration_time=timedelta(minutes=1))
     await datastore.add_job(job)
 
-    acquired = await datastore.acquire_jobs("worker_id", timedelta(seconds=30), 2)
+    acquired = await datastore.acquire_jobs("worker_id", 2)
     assert len(acquired) == 1
     assert acquired[0].id == job.id
 
@@ -486,7 +385,6 @@ async def test_job_release_failure(datastore: DataStore) -> None:
         ),
     )
     result = await datastore.get_job_result(acquired[0].id)
-    assert result
     assert result.outcome is JobOutcome.error
     assert isinstance(result.exception, ValueError)
     assert result.exception.args == ("foo",)
@@ -501,12 +399,10 @@ async def test_job_release_missed_deadline(datastore: DataStore):
     await datastore.add_task(
         Task(id="task1", func="contextlib:asynccontextmanager", job_executor="async")
     )
-    job = Job(
-        task_id="task1", executor="async", result_expiration_time=timedelta(minutes=1)
-    )
+    job = Job(task_id="task1", result_expiration_time=timedelta(minutes=1))
     await datastore.add_job(job)
 
-    acquired = await datastore.acquire_jobs("worker_id", timedelta(seconds=30), 2)
+    acquired = await datastore.acquire_jobs("worker_id", 2)
     assert len(acquired) == 1
     assert acquired[0].id == job.id
 
@@ -519,7 +415,6 @@ async def test_job_release_missed_deadline(datastore: DataStore):
         ),
     )
     result = await datastore.get_job_result(acquired[0].id)
-    assert result
     assert result.outcome is JobOutcome.missed_start_deadline
     assert result.exception is None
     assert result.return_value is None
@@ -533,12 +428,10 @@ async def test_job_release_cancelled(datastore: DataStore) -> None:
     await datastore.add_task(
         Task(id="task1", func="contextlib:asynccontextmanager", job_executor="async")
     )
-    job = Job(
-        task_id="task1", executor="async", result_expiration_time=timedelta(minutes=1)
-    )
+    job = Job(task_id="task1", result_expiration_time=timedelta(minutes=1))
     await datastore.add_job(job)
 
-    acquired = await datastore.acquire_jobs("worker1", timedelta(seconds=30), 2)
+    acquired = await datastore.acquire_jobs("worker1", 2)
     assert len(acquired) == 1
     assert acquired[0].id == job.id
 
@@ -548,7 +441,6 @@ async def test_job_release_cancelled(datastore: DataStore) -> None:
         JobResult.from_job(acquired[0], JobOutcome.cancelled),
     )
     result = await datastore.get_job_result(acquired[0].id)
-    assert result
     assert result.outcome is JobOutcome.cancelled
     assert result.exception is None
     assert result.return_value is None
@@ -573,25 +465,23 @@ async def test_acquire_jobs_lock_timeout(
     await datastore.add_task(
         Task(id="task1", func="contextlib:asynccontextmanager", job_executor="async")
     )
-    job = Job(
-        task_id="task1", executor="async", result_expiration_time=timedelta(minutes=1)
-    )
+    job = Job(task_id="task1", result_expiration_time=timedelta(minutes=1))
     await datastore.add_job(job)
 
     # First, one worker acquires the first available job
     time_machine.move_to(datetime.now(timezone.utc), tick=False)
-    acquired = await datastore.acquire_jobs("worker1", timedelta(seconds=30), 1)
+    acquired = await datastore.acquire_jobs("worker1", 1)
     assert len(acquired) == 1
     assert acquired[0].id == job.id
 
     # Try to acquire the job just at the threshold (now == acquired_until).
     # This should not yield any jobs.
     time_machine.shift(30)
-    assert not await datastore.acquire_jobs("worker2", timedelta(seconds=30), 1)
+    assert not await datastore.acquire_jobs("worker2", 1)
 
     # Right after that, the job should be available
     time_machine.shift(1)
-    acquired = await datastore.acquire_jobs("worker2", timedelta(seconds=30), 1)
+    acquired = await datastore.acquire_jobs("worker2", 1)
     assert len(acquired) == 1
     assert acquired[0].id == job.id
 
@@ -605,28 +495,14 @@ async def test_acquire_jobs_max_number_exceeded(datastore: DataStore) -> None:
             max_running_jobs=2,
         )
     )
-    assert (await datastore.get_task("task1")).running_jobs == 0
-
-    jobs = [
-        Job(task_id="task1", executor="async"),
-        Job(task_id="task1", executor="async"),
-        Job(task_id="task1", executor="async"),
-    ]
+    jobs = [Job(task_id="task1"), Job(task_id="task1"), Job(task_id="task1")]
     for job in jobs:
         await datastore.add_job(job)
 
     # Check that only 2 jobs are returned from acquire_jobs() even though the limit
-    # was 3
-    acquired_jobs = await datastore.acquire_jobs("worker1", timedelta(seconds=30), 3)
-    assert len(acquired_jobs) == 2
+    # wqas 3
+    acquired_jobs = await datastore.acquire_jobs("worker1", 3)
     assert [job.id for job in acquired_jobs] == [job.id for job in jobs[:2]]
-    assert (await datastore.get_task("task1")).running_jobs == 2
-    for job in acquired_jobs:
-        assert job.acquired_by == "worker1"
-        assert job.acquired_until
-
-    # Check that no jobs are acquired now that the task is at capacity
-    assert not await datastore.acquire_jobs("worker1", timedelta(seconds=30), 3)
 
     # Release one job, and the worker should be able to acquire the third job
     await datastore.release_job(
@@ -638,13 +514,8 @@ async def test_acquire_jobs_max_number_exceeded(datastore: DataStore) -> None:
             return_value=None,
         ),
     )
-    assert (await datastore.get_task("task1")).running_jobs == 1
-    remaining_jobs = await datastore.get_jobs()
-    assert len(remaining_jobs) == 2
-
-    acquired_jobs = await datastore.acquire_jobs("worker1", timedelta(seconds=30), 3)
+    acquired_jobs = await datastore.acquire_jobs("worker1", 3)
     assert [job.id for job in acquired_jobs] == [jobs[2].id]
-    assert (await datastore.get_task("task1")).running_jobs == 2
 
 
 async def test_add_get_task(datastore: DataStore) -> None:
@@ -686,179 +557,3 @@ async def test_next_schedule_run_time(datastore: DataStore, schedules: list[Sche
 
     next_schedule_run_time = await datastore.get_next_schedule_run_time()
     assert next_schedule_run_time == datetime(2020, 9, 13, tzinfo=timezone.utc)
-
-
-@pytest.mark.skipif(
-    platform.python_implementation() != "CPython",
-    reason="time-machine is not available",
-)
-async def test_extend_acquired_schedule_leases(
-    datastore: DataStore, time_machine: TimeMachineFixture, schedules: list[Schedule]
-) -> None:
-    """
-    Test that the leases on acquired schedules are updated to prevent other schedulers
-    from acquiring them.
-
-    """
-    time_machine.move_to(datetime(2020, 9, 14, tzinfo=timezone.utc))
-
-    # Add a schedule to the data store
-    await datastore.add_schedule(schedules[0], ConflictPolicy.exception)
-
-    # Acquire the schedule
-    schedules = await datastore.acquire_schedules(
-        "scheduler_id",
-        timedelta(seconds=30),
-        1,
-    )
-    assert len(schedules) == 1
-
-    # Move 20 seconds forward, then call extend_acquired_schedule_leases(). This should
-    # set the acquired_until timestamp to 30 seconds from the new current time.
-    time_machine.shift(20)
-    await datastore.extend_acquired_schedule_leases(
-        "scheduler_id", {schedules[0].id}, timedelta(seconds=30)
-    )
-
-    # The schedule was acquired by scheduler_id so scheduler2_id should not be able to
-    # acquire it, as it's still within the original lock expiration delay
-    assert not await datastore.acquire_schedules(
-        "scheduler2_id",
-        timedelta(seconds=30),
-        1,
-    )
-
-    # Move 20 more seconds forward (beyond the initial lock expiration delay), then try
-    # to have the second scheduler acquire the schedule again. This should also fail.
-    time_machine.shift(20)
-    assert not await datastore.acquire_schedules(
-        "scheduler2_id",
-        timedelta(seconds=30),
-        1,
-    )
-
-    # Move 20 more seconds forward - this time the schedule should be available
-    time_machine.shift(20)
-    schedules = await datastore.acquire_schedules(
-        "scheduler2_id",
-        timedelta(seconds=30),
-        1,
-    )
-    assert len(schedules) == 1
-
-
-@pytest.mark.skipif(
-    platform.python_implementation() != "CPython",
-    reason="time-machine is not available",
-)
-async def test_extend_acquired_job_leases(
-    datastore: DataStore, time_machine: TimeMachineFixture
-) -> None:
-    """
-    Test that the leases on acquired jobs are updated to prevent them from being cleaned
-    up as if they had been abandoned.
-
-    """
-    time_machine.move_to(datetime(2020, 9, 14, tzinfo=timezone.utc))
-
-    # Add a task to the data store
-    task = Task(id="task1", func="contextlib:asynccontextmanager", job_executor="async")
-    await datastore.add_task(task)
-
-    # Add a job to the data store
-    job = Job(
-        task_id="task1", executor="async", result_expiration_time=timedelta(seconds=30)
-    )
-    await datastore.add_job(job)
-
-    # Acquire the job
-    jobs = await datastore.acquire_jobs("scheduler_id", timedelta(seconds=30), 1)
-    assert len(jobs) == 1
-
-    # Move 20 seconds forward, then call extend_acquired_job_leases(). This should set
-    # the acquired_until timestamp to 30 seconds from the new current time.
-    time_machine.shift(20)
-    await datastore.extend_acquired_job_leases(
-        "scheduler_id", {job.id}, timedelta(seconds=30)
-    )
-
-    # The job was acquired by scheduler_id so scheduler2_id should not be able to
-    # acquire it
-    assert not await datastore.acquire_jobs("scheduler2_id", timedelta(seconds=30), 1)
-
-    # Move 20 more seconds forward (beyond the initial lock expiration delay), then make
-    # sure that the job is still within the data store.
-    time_machine.shift(20)
-    await datastore.cleanup()
-    jobs = await datastore.get_jobs({job.id})
-    assert len(jobs) == 1
-
-    # Move 20 more seconds forward - this time the job's lease will have expired
-    time_machine.shift(20)
-    await datastore.cleanup()
-    assert not await datastore.get_jobs({job.id})
-
-    # Check that a result was recorded, with the "abandoned" outcome
-    result = await datastore.get_job_result(job.id)
-    assert result
-    assert result.outcome is JobOutcome.abandoned
-
-
-async def test_acquire_jobs_deserialization_failure(
-    datastore: DataStore, mocker: MockerFixture
-) -> None:
-    if not isinstance(datastore, BaseExternalDataStore):
-        pytest.skip("Only applicable to external data stores")
-
-    # Add a task to the data store
-    task = Task(id="task1", func="contextlib:asynccontextmanager", job_executor="async")
-    await datastore.add_task(task)
-
-    # Add a job to the data store
-    job = Job(
-        task_id="task1", executor="async", result_expiration_time=timedelta(seconds=30)
-    )
-    await datastore.add_job(job)
-
-    # Make the serializer fail deserialization
-    assert isinstance(datastore, BaseExternalDataStore)
-    datastore.serializer = Mock(Serializer)
-    datastore.serializer.deserialize.configure_mock(side_effect=DeserializationError)
-
-    # This should not yield any jobs
-    assert await datastore.acquire_jobs("scheduler_id", timedelta(seconds=30), 1) == []
-
-
-class TestRepr:
-    async def test_memory(self, memory_store: MemoryDataStore) -> None:
-        assert repr(memory_store) == "MemoryDataStore()"
-
-    async def test_sqlite(self, tmp_path: Path) -> None:
-        from sqlalchemy import create_engine
-
-        expected_path = str(tmp_path).replace("\\", "\\\\")
-        engine = create_engine(f"sqlite:///{tmp_path}")
-        data_store = SQLAlchemyDataStore(engine)
-        assert repr(data_store) == (
-            f"SQLAlchemyDataStore(url='sqlite:///{expected_path}')"
-        )
-
-    async def test_psycopg(self) -> None:
-        from sqlalchemy.ext.asyncio import create_async_engine
-
-        pytest.importorskip("psycopg", reason="psycopg not available")
-        engine = create_async_engine(
-            "postgresql+psycopg://postgres:secret@localhost/testdb"
-        )
-        data_store = SQLAlchemyDataStore(engine, schema="myschema")
-        assert repr(data_store) == (
-            "SQLAlchemyDataStore(url='postgresql+psycopg://postgres:***@localhost/"
-            "testdb', schema='myschema')"
-        )
-
-    async def test_mongodb(self) -> None:
-        from pymongo import MongoClient
-
-        with MongoClient() as client:
-            data_store = MongoDBDataStore(client)
-            assert repr(data_store) == "MongoDBDataStore(host=[('localhost', 27017)])"

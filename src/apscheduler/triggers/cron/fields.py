@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import re
 from calendar import monthrange
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Sequence
 
 from .expressions import (
     WEEKDAYS,
@@ -55,7 +55,7 @@ SEPARATOR = re.compile(" *, *")
 
 
 class BaseField:
-    __slots__ = "expressions", "name"
+    __slots__ = "name", "expressions"
 
     real: ClassVar[bool] = True
     compilers: ClassVar[Any] = (AllExpression, RangeExpression)

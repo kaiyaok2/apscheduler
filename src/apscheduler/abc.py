@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import sys
 from abc import ABCMeta, abstractmethod
-from collections.abc import Iterable, Iterator, Sequence
 from contextlib import AsyncExitStack
-from datetime import datetime, timedelta
+from datetime import datetime
 from logging import Logger
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator
 from uuid import UUID
 
 if sys.version_info >= (3, 11):
@@ -17,7 +16,7 @@ else:
 if TYPE_CHECKING:
     from ._enums import ConflictPolicy
     from ._events import Event, T_Event
-    from ._structures import Job, JobResult, Schedule, ScheduleResult, Task
+    from ._structures import Job, JobResult, Schedule, Task
 
 
 class Trigger(Iterator[datetime], metaclass=ABCMeta):
@@ -247,9 +246,7 @@ class DataStore(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    async def acquire_schedules(
-        self, scheduler_id: str, lease_duration: timedelta, limit: int
-    ) -> list[Schedule]:
+    async def acquire_schedules(self, scheduler_id: str, limit: int) -> list[Schedule]:
         """
         Acquire unclaimed due schedules for processing.
 
@@ -257,30 +254,19 @@ class DataStore(metaclass=ABCMeta):
         scheduler and returns them.
 
         :param scheduler_id: unique identifier of the scheduler
-        :param lease_duration: the duration of the lease, after which the schedules can be
-            acquired by another scheduler even if ``acquired_by`` is not ``None``
         :param limit: maximum number of schedules to claim
         :return: the list of claimed schedules
         """
 
     @abstractmethod
     async def release_schedules(
-        self, scheduler_id: str, results: Sequence[ScheduleResult]
+        self, scheduler_id: str, schedules: list[Schedule]
     ) -> None:
         """
         Release the claims on the given schedules and update them on the store.
 
-        The data store is responsible for updating the following fields on stored
-        schedules:
-
-        * ``last_fire_time``
-        * ``next_fire_time``
-        * ``trigger``
-        * ``acquired_by`` (must beset to ``None``)
-        * ``acquired_until`` (must be set to ``None``)
-
         :param scheduler_id: unique identifier of the scheduler
-        :param results: list of schedule processing results
+        :param schedules: the previously claimed schedules
         """
 
     @abstractmethod
@@ -310,7 +296,7 @@ class DataStore(metaclass=ABCMeta):
 
     @abstractmethod
     async def acquire_jobs(
-        self, scheduler_id: str, lease_duration: timedelta, limit: int | None = None
+        self, scheduler_id: str, limit: int | None = None
     ) -> list[Job]:
         """
         Acquire unclaimed jobs for execution.
@@ -319,8 +305,6 @@ class DataStore(metaclass=ABCMeta):
         and returns them.
 
         :param scheduler_id: unique identifier of the scheduler
-        :param lease_duration: the duration of the lease, after which the jobs will be
-            considered to be dead if the scheduler doesn't extend the lease duration
         :param limit: maximum number of jobs to claim and return
         :return: the list of claimed jobs
         """
@@ -346,41 +330,11 @@ class DataStore(metaclass=ABCMeta):
         :return: the result, or ``None`` if the result was not found
         """
 
-    async def extend_acquired_schedule_leases(
-        self, scheduler_id: str, schedule_ids: set[str], duration: timedelta
-    ) -> None:
-        """
-        Extend the leases of specified schedules acquired by the given scheduler.
-
-        :param scheduler_id: unique identifier of the scheduler
-        :param schedule_ids: the identifiers of the schedules the scheduler is currently
-            processing
-        :param duration: the duration by which to extend the leases
-        """
-
-    async def extend_acquired_job_leases(
-        self, scheduler_id: str, job_ids: set[UUID], duration: timedelta
-    ) -> None:
-        """
-        Extend the leases of specified jobs acquired by the given scheduler.
-
-        :param scheduler_id: unique identifier of the scheduler
-        :param job_ids: the identifiers of the jobs the scheduler is running
-        :param duration: the duration by which to extend the leases
-        """
-
     @abstractmethod
     async def cleanup(self) -> None:
         """
-        Perform clean-up operations on the data store.
-
-        This method must perform the following operations (in this order):
-
-        * Purge expired job results (where ``expires_at`` is less or equal to the
-          current time)
-        * Release jobs with expired leases with the ``cancelled`` outcome
-        * Purge finished schedules (where ``next_run_time`` is ``None``) that have no
-          running jobs associated with them
+        Purge expired job results and finished schedules that have no running jobs
+        associated with them.
         """
 
 
@@ -396,10 +350,9 @@ class JobExecutor(metaclass=ABCMeta):
     @abstractmethod
     async def run_job(self, func: Callable[..., Any], job: Job) -> Any:
         """
-        Run the given job by calling the given function.
 
-        :param func: the function to call
-        :param job: the associated job
+        :param func:
+        :param job:
         :return: the return value of ``func`` (potentially awaiting on the returned
             aawaitable, if any)
         """
