@@ -15,4 +15,3 @@ build/
 virtualenv/
 venv*/
 example.sqlite
-.123
